@@ -31,7 +31,134 @@
           <h1>
 <a id="zjyywjqgithubio" class="anchor" href="#zjyywjqgithubio" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>zjyywjq.github.io</h1>
 
-<p>Business Analysis Assignment</p>
+<p>Welcome to Jieqiong Wu's github.
+This is Business Analysis Assignment8 - A topic model of Amazon food reviews analysis.</p>
+
+<h1>
+<a id="a-topic-model-of-amazon-food-reviews-analysis" class="anchor" href="#a-topic-model-of-amazon-food-reviews-analysis" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>A topic model of Amazon food reviews analysis.</h1>
+
+<h2>
+<a id="summary" class="anchor" href="#summary" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Summary</h2>
+
+<h2>
+<a id="result-analysis" class="anchor" href="#result-analysis" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Result Analysis</h2>
+
+<h2>
+<a id="the-data" class="anchor" href="#the-data" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>The Data</h2>
+
+<p>Load the data of Amazon food reviews from my desktop. The data can be found at <a href="https://www.kaggle.com/snap/amazon-fine-food-reviews">https://www.kaggle.com/snap/amazon-fine-food-reviews</a>. </p>
+
+<pre><code>#Load the Data
+re&lt;- read.csv("/Users/jieqiongwu/Desktop/foodreviewtext.csv", header=T,stringsAsFactors = F)
+reviews&lt;-re$Reviews
+str(reviews)
+</code></pre>
+
+<h2>
+<a id="pre-processing" class="anchor" href="#pre-processing" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Pre-processing</h2>
+
+<p>Before fitting a topic model, we need to tokenize the text. This dataset is fairly clean, so we only remove punctuation and some common stop words. In particular, we use the english stop words from the SMART information retrieval system.</p>
+
+<pre><code># read in some stopwords:
+library(tm)
+stop_words &lt;- stopwords("SMART")
+
+# pre-processing:
+reviews &lt;- gsub("'", "", reviews) 
+reviews &lt;- gsub("[[:punct:]]", " ", reviews)  
+reviews &lt;- gsub("[[:cntrl:]]", " ", reviews) 
+reviews &lt;- gsub("^[[:space:]]+", "", reviews) 
+reviews &lt;- gsub("[[:space:]]+$", "", reviews) 
+reviews &lt;- tolower(reviews)  
+
+# tokenize on space and output as a list:
+doc.list &lt;- strsplit(reviews, "[[:space:]]+")
+
+# compute the table of terms:
+term.table &lt;- table(unlist(doc.list))
+term.table &lt;- sort(term.table, decreasing = TRUE)
+
+# remove terms that are stop words or occur fewer than 5 times:
+del &lt;- names(term.table) %in% stop_words | term.table &lt; 5
+term.table &lt;- term.table[!del]
+vocab &lt;- names(term.table)
+
+# now put the documents into the format required by the lda package:
+get.terms &lt;- function(x) {
+  index &lt;- match(x, vocab)
+  index &lt;- index[!is.na(index)]
+  rbind(as.integer(index - 1), as.integer(rep(1, length(index))))
+}
+ documents &lt;- lapply(doc.list, get.terms)
+</code></pre>
+
+<h2>
+<a id="using-the-r-package-lda-for-model-fitting" class="anchor" href="#using-the-r-package-lda-for-model-fitting" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Using the R package 'lda' for model fitting</h2>
+
+<p>The object documents is a large list, in which each element represents one text document. After creating this list, we compute a few statistics about the corpus, such as length and vocabulary counts:</p>
+
+<pre><code># Compute some statistics related to the data set:
+D &lt;- length(documents) 
+W &lt;- length(vocab)  
+doc.length &lt;- sapply(documents, function(x) sum(x[2, ])) 
+N &lt;- sum(doc.length)  
+term.frequency &lt;- as.integer(term.table)  
+</code></pre>
+
+<p>Next, we set up a topic model with 10 topics, relatively diffuse priors for the topic-term distributions (ηη = 0.02) and document-topic distributions (αα = 0.02), and we set the collapsed Gibbs sampler to run for 300 iterations (slightly conservative to ensure convergence). A visual inspection of fit$log.likelihood shows that the MCMC algorithm has converged after 300 iterations. This block of code takes about 0.19 minute to run on a laptop using a single core 1.7Ghz processor (and 8GB RAM).</p>
+
+<pre><code># MCMC and model tuning parameters:
+K &lt;- 10
+G &lt;- 300
+alpha &lt;- 0.02
+eta &lt;- 0.02
+
+# Fit the model:
+library(lda)
+set.seed(369)
+t1 &lt;- Sys.time()
+fit &lt;- lda.collapsed.gibbs.sampler(documents = documents, K = K, vocab = vocab, 
+                                   num.iterations = G, alpha = alpha, 
+                                   eta = eta, initial = NULL, burnin = 0,
+                                   compute.log.likelihood = TRUE)
+t2 &lt;- Sys.time()
+t2 - t1  
+</code></pre>
+
+<h2>
+<a id="visualizing-the-fitted-model-with-ldavis" class="anchor" href="#visualizing-the-fitted-model-with-ldavis" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Visualizing the fitted model with LDAvis</h2>
+
+<p>To visualize the result using LDAvis, we'll need estimates of the document-topic distributions, which we denote by the D×KD×K matrix θθ, and the set of topic-term distributions, which we denote by the K×WK×W matrix ϕϕ. We estimate the “smoothed” versions of these distributions (“smoothed” means that we've incorporated the effects of the priors into the estimates) by cross-tabulating the latent topic assignments from the last iteration of the collapsed Gibbs sampler with the documents and the terms, respectively, and then adding pseudocounts according to the priors. A better estimator might average over multiple iterations of the Gibbs sampler (after convergence, assuming that the MCMC is sampling within a local mode and there is no label switching occurring), but we won't worry about that for now.</p>
+
+<pre><code>theta &lt;- t(apply(fit$document_sums + alpha, 2, function(x) x/sum(x)))
+phi &lt;- t(apply(t(fit$topics) + eta, 2, function(x) x/sum(x)))
+</code></pre>
+
+<p>We've already computed the number of tokens per document and the frequency of the terms across the entire corpus. We save these, along with ϕϕ, θθ, and vocab, in a list as the data object MovieReviews, which is included in the LDAvis package.</p>
+
+<pre><code>foodreviews&lt;- list(phi = phi,
+                             theta = theta,
+                             doc.length = doc.length,
+                             vocab = vocab,
+                             term.frequency = term.frequency)
+</code></pre>
+
+<p>Now we're ready to call the createJSON() function in LDAvis. This function will return a character string representing a JSON object used to populate the visualization. The createJSON() function computes topic frequencies, inter-topic distances, and projects topics onto a two-dimensional plane to represent their similarity to each other. It also loops through a grid of values of a tuning parameter, 0≤λ≤10≤λ≤1, that controls how the terms are ranked for each topic, where terms are listed in decreasing of relevance, where the relevance of term ww to topic tt is defined as λ×p(w∣t)+(1−λ)×p(w∣t)/p(w)λ×p(w∣t)+(1−λ)×p(w∣t)/p(w). Values of λλ near 1 give high relevance rankings to frequent terms within a given topic, whereas values of λλ near zero give high relevance rankings to exclusive terms within a topic. The set of all terms which are ranked among the top-R most relevant terms for each topic are pre-computed by the createJSON() function and sent to the browser to be interactively visualized using D3 as part of the JSON object.</p>
+
+<pre><code>library(LDAvis)
+library(servr)
+# create the JSON object to feed the visualization:
+json &lt;- createJSON(phi = foodreviews$phi, 
+                   theta = foodreviews$theta, 
+                   doc.length = foodreviews$doc.length, 
+                   vocab = foodreviews$vocab, 
+                   term.frequency = foodreviews$term.frequency)
+</code></pre>
+
+<p>The serVis() function can take json and serve the result in a variety of ways. Here we'll write json to a file within the 'vis' directory (along with other HTML and JavaScript required to render the page). You can see the result at :</p>
+
+<pre><code>serVis(json, out.dir = 'visassignment1', open.browser = TRUE)
+</code></pre>
         </section>
 
         <aside id="sidebar">
